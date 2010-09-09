@@ -30,7 +30,7 @@ def email_alert(toEmail, fromEmail, message, subject='You have an alert', useGma
     if username != '' and password != '':
         server.login(username, password)
 
-    server.sendmail(fromaddr, toaddrs, 'Subject: %s\r\n%s' % (status,message))
+    server.sendmail(fromaddr, toaddrs, 'Subject: %s\r\n%s' % (subject,message))
     server.quit()
 
 def growl_alert(status, message):
@@ -44,7 +44,8 @@ def growl_alert(status, message):
 def get_site_status(url):
     response = get_response(url)
     try:
-        if getattr(response, 'status') == 200:
+        status_code = getattr(response, 'status')
+        if status_code in (200,302):
             return 'up'
     except AttributeError:
         pass
@@ -162,7 +163,6 @@ def get_command_line_options():
 
     return parser.parse_args()
 
-
 def main():
     global notifier
     
@@ -180,7 +180,6 @@ def main():
         urls = get_urls_from_file(options.fromFile)
     else:
         urls = args
-
 
     # Change logging from WARNING to INFO when logResponseTime option is set
     # so we can log response times as well as status changes.
