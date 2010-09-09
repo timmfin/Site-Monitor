@@ -6,6 +6,10 @@ import pickle, os, sys, logging, time
 from httplib import HTTPConnection, socket
 from optparse import OptionParser, OptionValueError
 from smtplib import SMTP
+import Growl
+from urlparse import urlparse
+
+notifier = None
 
 def email_alert(toEmail, fromEmail, message, subject='You have an alert', useGmail=False, username='', password=''):
     toaddrs = toEmail
@@ -29,6 +33,14 @@ def email_alert(toEmail, fromEmail, message, subject='You have an alert', useGma
     server.sendmail(fromaddr, toaddrs, 'Subject: %s\r\n%s' % (status,message))
     server.quit()
 
+def growl_alert(status, message):
+    if status == "up":
+        title = "Site back up"
+    else:
+        title = "Site down"
+    
+    notifier.notify(status, title, message, sticky=True)
+
 def get_site_status(url):
     response = get_response(url)
     try:
@@ -41,13 +53,25 @@ def get_site_status(url):
 def get_response(url):
     '''Return response object from URL'''
     try:
-        conn = HTTPConnection(url)
-        conn.request('HEAD', '/')
+	if url.find('/') != -1:
+            host = url[:url.find('/')]
+            path = url[len(host):]
+        else:
+            host = url
+            path = '/'
+        
+        conn = HTTPConnection(host)
+        conn.request('HEAD', path)
         return conn.getresponse()
-    except socket.error:
+    except socket.error, e:
+        logging.error('Socket error: %s' % e)
         return None
-    except:
-        logging.error('Bad URL:', url)
+    except Exception, e:
+        logging.error('Bad URL: %s\n%s' % (url, e))
+
+        #import traceback
+        #traceback.print_exc(e)
+
         exit(1)
 
 def get_headers(url):
@@ -71,10 +95,13 @@ def compare_site_status(prev_results):
 
         friendly_status = '%s is %s' % (url, status)
         print friendly_status
-        if url in prev_results and prev_results[url] != status:
+
+        if (url in prev_results and prev_results[url] != status) or (status == "down" and (not url in prev_results)):
             logging.warning(status)
             # Email status messages
-            email_alert(str(get_headers(url)), friendly_status)
+            # email_alert(str(get_headers(url)), friendly_status)
+            growl_alert(status, friendly_status)
+            
         prev_results[url] = status
 
     return is_status_changed
@@ -137,7 +164,8 @@ def get_command_line_options():
 
 
 def main():
-
+    global notifier
+    
     # Get argument flags and command options
     (options,args) = get_command_line_options()
 
@@ -164,7 +192,11 @@ def main():
         logging.basicConfig(level=logging.WARNING, filename='checksites.log',
                 format='%(asctime)s %(levelname)s: %(message)s',
                 datefmt='%Y-%m-%d %H:%M:%S')
-
+    
+    # Setup Growl
+    notifier = Growl.GrowlNotifier('Site monitor', ['down', 'up', 'test'])
+    notifier.register()
+    
     # Load previous data
     pickle_file = 'data.pkl'
     pickledata = load_old_results(pickle_file)
